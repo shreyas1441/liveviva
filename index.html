@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Speech to Text with Firebase</title>
+    <style>
+        :root {
+            --bg-default: radial-gradient(circle at center, #aee7ff, #0077ff);
+            --bg-success: #28a745;
+            --bg-failure: #dc3545;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-default);
+            background-size: 200% 200%;
+            animation: glow 10s ease infinite;
+            transition: background 1s ease;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+        }
+
+        @keyframes glow {
+            0% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
+
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+
+        h1#transcript {
+            font-size: 2.5rem;
+            text-align: center;
+            max-width: 90%;
+        }
+
+        #start-button {
+            display: none;
+            padding: 1rem 2rem;
+            font-size: 1.5rem;
+            border: none;
+            border-radius: 8px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+
+        #error {
+            color: #ccc;
+            font-size: 1.2rem;
+            position: absolute;
+            bottom: 2rem;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div>
+        <h1 id="transcript">Initializing...</h1>
+        <button id="start-button">Start Listening</button>
+        <div id="error"></div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script>
+        // Paste your Firebase config below
+        const firebaseConfig = {
+            apiKey: "AIzaSyDtYpMpkwAmlc9KxkELuhyC_y97ntjnjJU",
+            authDomain: "live-viva.firebaseapp.com",
+            projectId: "live-viva",
+            storageBucket: "live-viva.firebasestorage.app",
+            messagingSenderId: "548290814442",
+            appId: "1:548290814442:web:8556a11bad25128bf1d293",
+            measurementId: "G-NG08XNLN70"
+        };
+    </script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            // --- Firebase Setup ---
+            firebase.initializeApp(firebaseConfig);
+            const db = firebase.database();
+
+            // --- Command list ---
+            const COMMANDS = {
+                "hello how are you": "how_are_you",
+                "open whatsapp": "open_whatsapp",
+                "open youtube": "open_youtube",
+                "what time is it": "what_time_is_it",
+                "stop listening": "stop_listening"
+            };
+
+            const transcriptElem = document.getElementById("transcript");
+            const startButton = document.getElementById("start-button");
+            const errorElem = document.getElementById("error");
+            const body = document.body;
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+            if (!SpeechRecognition) {
+                transcriptElem.textContent = "Speech Recognition Not Supported";
+                errorElem.textContent = "Please use a supported browser like Chrome or Edge.";
+                body.style.background = "#444";
+                return;
+            }
+
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = "en-US";
+
+            let isListening = false;
+
+            // --- Visual Feedback ---
+            function flashBackground(colorVar) {
+                body.style.background = colorVar;
+                setTimeout(() => {
+                    body.style.background = "var(--bg-default)";
+                }, 2000);
+            }
+
+            // --- Send Command to Firebase ---
+            function sendCommandToFirebase(commandKey) {
+                const commandFn = COMMANDS[commandKey];
+                if (commandFn) {
+                    db.ref("detected_command").set({
+                        timestamp: Date.now(),
+                        command: commandFn
+                    });
+                }
+            }
+
+            // --- Process Final Results ---
+            function handleFinalResult(text) {
+                const normalized = text.toLowerCase().trim();
+                if (COMMANDS.hasOwnProperty(normalized)) {
+                    flashBackground("var(--bg-success)");
+                    sendCommandToFirebase(normalized);
+                    if (normalized === "stop listening") {
+                        recognition.stop();
+                        isListening = false;
+                        transcriptElem.textContent = "Stopped listening.";
+                        startButton.style.display = "inline-block";
+                    }
+                } else {
+                    flashBackground("var(--bg-failure)");
+                }
+            }
+
+            recognition.onresult = (event) => {
+                let interim = "";
+                let final = "";
+
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    const result = event.results[i];
+                    if (result.isFinal) {
+                        final += result[0].transcript;
+                    } else {
+                        interim += result[0].transcript;
+                    }
+                }
+
+                transcriptElem.textContent = final || interim;
+
+                if (final) handleFinalResult(final);
+            };
+
+            recognition.onerror = (event) => {
+                if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+                    errorElem.textContent = "Microphone access denied.";
+                    startButton.style.display = "inline-block";
+                }
+            };
+
+            recognition.onend = () => {
+                if (isListening) recognition.start();
+            };
+
+            function startListening() {
+                try {
+                    recognition.start();
+                    isListening = true;
+                    transcriptElem.textContent = "Listening...";
+                    startButton.style.display = "none";
+                } catch (e) {
+                    errorElem.textContent = "Click 'Start Listening' to begin.";
+                    startButton.style.display = "inline-block";
+                }
+            }
+
+            try {
+                startListening();
+            } catch {
+                startButton.style.display = "inline-block";
+            }
+
+            startButton.addEventListener("click", () => {
+                startListening();
+            });
+        });
+    </script>
+</body>
+
+</html>
