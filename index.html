@@ -97,7 +97,7 @@
             firebase.initializeApp(firebaseConfig);
             const db = firebase.database();
 
-            // --- Command list ---
+            // --- Command list (all keys already lower‑case) ---
             const COMMANDS = {
                 "hello how are you": "how_are_you",
                 "open whatsapp": "open_whatsapp",
@@ -130,29 +130,25 @@
             // --- Visual Feedback ---
             function flashBackground(colorVar) {
                 body.style.background = colorVar;
-                setTimeout(() => {
-                    body.style.background = "var(--bg-default)";
-                }, 2000);
+                setTimeout(() => body.style.background = "var(--bg-default)", 2000);
             }
 
             // --- Send Command to Firebase ---
-            function sendCommandToFirebase(commandKey) {
-                const commandFn = COMMANDS[commandKey];
-                if (commandFn) {
-                    db.ref("detected_command").set({
-                        timestamp: Date.now(),
-                        command: commandFn
-                    });
-                }
+            function sendCommandToFirebase(cmdKey) {
+                db.ref("detected_command").set({
+                    timestamp: Date.now(),
+                    command: COMMANDS[cmdKey]
+                });
             }
 
             // --- Process Final Results ---
             function handleFinalResult(text) {
-                const normalized = text.toLowerCase().trim();
-                if (COMMANDS.hasOwnProperty(normalized)) {
+                const lowered = text.toLowerCase().trim();           // <‑‑‑ HERE
+                if (COMMANDS.hasOwnProperty(lowered)) {
                     flashBackground("var(--bg-success)");
-                    sendCommandToFirebase(normalized);
-                    if (normalized === "stop listening") {
+                    sendCommandToFirebase(lowered);
+
+                    if (lowered === "stop listening") {
                         recognition.stop();
                         isListening = false;
                         transcriptElem.textContent = "Stopped listening.";
@@ -163,6 +159,7 @@
                 }
             }
 
+            // --- Speech Recognition callback ---
             recognition.onresult = (event) => {
                 let interim = "";
                 let final = "";
@@ -176,9 +173,10 @@
                     }
                 }
 
+                // Show live transcript (unchanged case is fine for display)
                 transcriptElem.textContent = final || interim;
 
-                if (final) handleFinalResult(final);
+                if (final) handleFinalResult(final);      // lowered INSIDE handleFinalResult
             };
 
             recognition.onerror = (event) => {
@@ -188,9 +186,7 @@
                 }
             };
 
-            recognition.onend = () => {
-                if (isListening) recognition.start();
-            };
+            recognition.onend = () => { if (isListening) recognition.start(); };
 
             function startListening() {
                 try {
@@ -198,23 +194,18 @@
                     isListening = true;
                     transcriptElem.textContent = "Listening...";
                     startButton.style.display = "none";
-                } catch (e) {
+                } catch {
                     errorElem.textContent = "Click 'Start Listening' to begin.";
                     startButton.style.display = "inline-block";
                 }
             }
 
-            try {
-                startListening();
-            } catch {
-                startButton.style.display = "inline-block";
-            }
-
-            startButton.addEventListener("click", () => {
-                startListening();
-            });
+            // Auto‑start, fall back to button if blocked
+            try { startListening(); } catch { startButton.style.display = "inline-block"; }
+            startButton.addEventListener("click", startListening);
         });
     </script>
+
 </body>
 
 </html>
